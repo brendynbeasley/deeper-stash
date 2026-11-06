@@ -60,7 +60,7 @@ window.Art = (() => {
     const cx = center ? 200 : side < 0.33 ? 128 : side < 0.66 ? 200 : 272;
     const cy = 120 + (r() - 0.5) * 16, s = 1.45 + r() * 0.3, rot = ((r() - 0.5) * 18).toFixed(1);
     const tf = (dx, dy) => `translate(${(cx + dx).toFixed(1)} ${(cy + dy).toFixed(1)}) rotate(${rot}) scale(${s.toFixed(2)}) translate(-50 -50)`;
-    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
       <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
       <rect width="${W}" height="${H}" fill="url(#${id})"/>${shapes}
       ${glyphGroup(k, tf(5, 7), "#000", 'opacity=".14"')}${glyphGroup(k, tf(0, 0), "#fff")}
@@ -70,7 +70,7 @@ window.Art = (() => {
   // Round avatar for the stories row.
   function avatar(topic) {
     const k = key(topic), [c1, c2] = PAL[k], id = "av" + (++n);
-    return `<svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
       <rect width="100" height="100" fill="url(#${id})"/><circle cx="78" cy="20" r="26" fill="#fff" opacity=".12"/>
       ${glyphGroup(k, "translate(50 52) scale(.6) translate(-50 -50)", "#fff", 'stroke-width="7"')}</svg>`;
   }

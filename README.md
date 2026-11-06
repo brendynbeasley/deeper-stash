@@ -12,8 +12,16 @@ Bite-sized ideas from books, articles, podcasts and life — swipe through them,
 - **Starter library** — 43 original idea cards across Productivity, Psychology, Learning, Money, Health, Communication, Creativity, Thinking and Habits.
 - **Your own ideas** — tap **+** to add an idea with a title, explanation, source and topic.
 - **Stashes** — named collections with an icon. An idea can live in several stashes.
-- **Topics & search** — filter the feed by topic; search across titles, text, sources and topics.
-- **Daily review & streak** — each day, up to 5 stashed ideas come back. See the headline, recall the idea, then check yourself. Ideas you remember return after 1, 3, 7, 16, 35 and 90 days; ones you miss come back tomorrow. Finishing the day's review keeps your streak going.
+- **Explore** — journeys, topic tiles and search across titles, text, sources and topics.
+- **Journeys** — 8 guided paths (e.g. *Money Basics*, *Learn Anything Faster*) with a quick check after each idea and saved progress. Any stash can be played as a journey too.
+- **Quizzes** — every starter idea has a multiple-choice question, and you can write one for your own ideas. Quizzes power the daily review.
+- **Listen mode** — have any card, stash, journey or your whole feed read aloud, with a mini player and speed control (uses your device's built-in voices).
+- **Daily review & streak** — each day, up to 5 stashed ideas come back as a quiz (or a recall check if there's no quiz). Ideas you get right return after 1, 3, 7, 16, 35 and 90 days; ones you miss come back tomorrow.
+- **Streak freezes** — earn one for every 7-day streak (hold up to 2). A freeze covers a missed day automatically.
+- **Achievements, stats & reading history** — on the Review tab.
+- **Save from anywhere** — on Android, share a page to Deeper Stash once it's installed; on a computer, use the bookmarklet in Settings. Highlighted text becomes a new idea with the link attached.
+- **Share as an image** — turn any idea into a shareable card picture.
+- **Interests** — pick topics on first launch; they lead your feed, stories and journeys.
 - **Works offline** and can be installed to your home screen (Share → Add to Home Screen on iPhone).
 
 ## Syncing across devices with GitHub
@@ -37,9 +45,10 @@ Changes sync automatically a few seconds after you make them, and again whenever
 | --- | --- |
 | `index.html` | App shell |
 | `styles.css` | Styles (light and dark mode) |
-| `app.js` | All app logic: feed, stashes, review, search, GitHub sync |
+| `app.js` | All app logic: feed, stories, journeys, quizzes, listen mode, review, stashes, explore, GitHub sync |
 | `art.js` | Generates each card's illustration and the story avatars |
 | `starter.js` | The starter idea library — add your own cards here |
+| `content.js` | Quiz questions for the starter ideas, and the Journeys |
 | `sw.js`, `manifest.webmanifest` | Offline support and home-screen install |
 
 No build step — it's plain HTML, CSS and JavaScript served by GitHub Pages.

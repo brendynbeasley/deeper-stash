@@ -1,15 +1,78 @@
 {
   "name": "Deeper Stash",
   "short_name": "Deeper Stash",
-  "description": "Bite-sized ideas — swipe, stash, and remember them.",
+  "description": "Bite-sized ideas \u2014 swipe, stash, and remember them.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f6f1e7",
   "theme_color": "#f6f1e7",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "id": "./",
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "Add an idea",
+      "short_name": "Add",
+      "url": "./?action=add",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Daily review",
+      "short_name": "Review",
+      "url": "./?tab=review",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Explore journeys",
+      "short_name": "Explore",
+      "url": "./?tab=search",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "categories": [
+    "education",
+    "books",
+    "productivity"
   ]
 }
