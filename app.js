@@ -10,11 +10,15 @@
   const LOCAL_KEY = "deeperstash:local:v1"; // per-device: seen cards, prefs
   const REVIEW_INTERVALS = [1, 3, 7, 16, 35, 90]; // days, by box
   const DAILY_REVIEW_SIZE = 5;
-  const TOPIC_COLORS = {
-    productivity: "--t-prod", psychology: "--t-psy", learning: "--t-learn", money: "--t-money",
-    health: "--t-health", communication: "--t-comm", creativity: "--t-create", thinking: "--t-think", habits: "--t-habit"
-  };
   const EMOJIS = ["📚", "💡", "🧠", "⚡", "🌱", "💰", "❤️", "🎯", "🛠️", "✍️", "🧭", "🔥", "🌙", "🎨", "🗣️", "⭐"];
+  const ICONS = {
+    bookmark: '<svg viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z" fill="currentColor"/></svg>',
+    bookmarkO: '<svg viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>',
+    share: '<svg viewBox="0 0 24 24"><path d="M12 3v12M7 8l5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
+    more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.9" fill="currentColor"/><circle cx="12" cy="12" r="1.9" fill="currentColor"/><circle cx="19" cy="12" r="1.9" fill="currentColor"/></svg>',
+    close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    iosShare: '<svg viewBox="0 0 24 24" style="width:16px;height:16px;vertical-align:-3px"><path d="M12 3v12M7 8l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+  };
 
   // ---------------------------------------------------------------- helpers
   const $ = (s, el = document) => el.querySelector(s);
@@ -25,15 +29,21 @@
     const z = new Date(d); return `${z.getFullYear()}-${String(z.getMonth() + 1).padStart(2, "0")}-${String(z.getDate()).padStart(2, "0")}`;
   };
   const addDays = (key, n) => { const [y, m, d] = key.split("-").map(Number); return dayKey(new Date(y, m - 1, d + n)); };
-  const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-  const topicVar = (t) => `var(${TOPIC_COLORS[String(t || "").toLowerCase()] || "--t-other"})`;
+  const shuffle = (a, rand = Math.random) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const load = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
   const persist = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  const buzz = () => { try { navigator.vibrate && navigator.vibrate(12); } catch {} };
+  const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const words = (s) => String(s || "").trim().split(/\s+/).length;
+  const readTime = (i) => { const sec = Math.max(10, Math.round((words(i.title) + words(i.body)) / 3.8 / 5) * 5); return sec < 60 ? `${sec} sec read` : `${Math.round(sec / 60)} min read`; };
+  const validImage = (src) => typeof src === "string" && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(src);
+  const artHTML = (idea, opts) => validImage(idea.image) ? `<img src="${esc(idea.image)}" alt="">` : Art.svg(idea, opts);
+  const topicStyle = (t) => { const [a, b] = Art.palette(t); return `--g1:${a};--g2:${b}`; };
 
   // ---------------------------------------------------------------- state
   const freshData = () => ({
     v: 1,
-    ideas: {},      // user ideas: id -> {id,title,body,source,topic,createdAt,updatedAt,deleted?}
+    ideas: {},      // user ideas: id -> {id,title,body,source,topic,image?,createdAt,updatedAt,deleted?}
     stashes: {      // id -> {id,name,emoji,ideaIds:[],updatedAt,deleted?}
       "st-saved": { id: "st-saved", name: "Saved", emoji: "⭐", ideaIds: [], updatedAt: 1 }
     },
@@ -42,10 +52,10 @@
     updatedAt: 0
   });
   let data = load(STORE_KEY, null) || freshData();
-  let local = load(LOCAL_KEY, { seen: {}, lastStash: "st-saved", topic: "All" });
+  let local = Object.assign({ seen: {}, lastStash: "st-saved", topic: "All", storySeen: {}, installDismissed: false }, load(LOCAL_KEY, {}));
   let syncCfg = load(SYNC_KEY, { owner: "", repo: "deeper-stash-data", branch: "main", path: "stash.json", token: "", lastSync: 0, auto: true });
 
-  const ui = { tab: "feed", feedQueue: null, review: null, query: "", searchTopic: "All", openStash: null };
+  const ui = { tab: "feed", feedQueue: null, feedShown: 0, review: null, query: "", searchTopic: "All", openStash: null };
 
   function save({ sync = true } = {}) {
     data.updatedAt = now();
@@ -53,7 +63,8 @@
     if (sync) scheduleSync();
     refreshChrome();
   }
-  const saveLocal = () => persist(LOCAL_KEY, local);
+  let localTimer;
+  const saveLocal = () => { clearTimeout(localTimer); localTimer = setTimeout(() => persist(LOCAL_KEY, local), 150); };
 
   // ---------------------------------------------------------------- ideas
   function allIdeas() {
@@ -61,11 +72,13 @@
     const mine = Object.values(data.ideas).filter((i) => !i.deleted);
     return [...mine.sort((a, b) => b.createdAt - a.createdAt), ...starters];
   }
-  const ideaById = (id) => data.ideas[id] && !data.ideas[id].deleted ? data.ideas[id] : (window.STARTER_IDEAS || []).find((i) => i.id === id);
+  const ideaById = (id) => data.ideas[id] && !data.ideas[id].deleted ? data.ideas[id] : (window.STARTER_IDEAS || []).find((i) => i.id === id) && { ...(window.STARTER_IDEAS.find((i) => i.id === id)), starter: true };
   const liveStashes = () => Object.values(data.stashes).filter((s) => !s.deleted).sort((a, b) => (a.id === "st-saved" ? -1 : b.id === "st-saved" ? 1 : a.name.localeCompare(b.name)));
   const topics = () => [...new Set(allIdeas().map((i) => i.topic).filter(Boolean))].sort();
   const stashedIds = () => new Set(liveStashes().flatMap((s) => s.ideaIds));
   const stashesFor = (id) => liveStashes().filter((s) => s.ideaIds.includes(id));
+  const isStashed = (id) => liveStashes().some((s) => s.ideaIds.includes(id));
+  const defaultStash = () => data.stashes[local.lastStash] && !data.stashes[local.lastStash].deleted ? local.lastStash : "st-saved";
 
   function setInStash(stashId, ideaId, on) {
     const s = data.stashes[stashId]; if (!s) return;
@@ -75,6 +88,14 @@
     s.updatedAt = now();
     if (on && !data.reviews[ideaId]) data.reviews[ideaId] = { box: 0, due: dayKey(), at: now() };
   }
+  // Quick-stash into the last used stash. Returns true if it was newly added.
+  function quickStash(id, { announce = true } = {}) {
+    if (isStashed(id)) return false;
+    const target = defaultStash();
+    setInStash(target, id, true); save(); buzz();
+    if (announce) toast(`Stashed in ${data.stashes[target].name}`, { label: "Change", fn: () => openStashPicker(id) });
+    return true;
+  }
 
   // ---------------------------------------------------------------- streak & review
   function streakInfo() {
@@ -83,12 +104,10 @@
     let cur = set.has(today) ? today : addDays(today, -1);
     let count = 0;
     while (set.has(cur)) { count++; cur = addDays(cur, -1); }
-    // best streak
     const sorted = [...set].sort(); let best = 0, run = 0, prev = null;
     for (const d of sorted) { run = prev && addDays(prev, 1) === d ? run + 1 : 1; best = Math.max(best, run); prev = d; }
     return { count, best, doneToday: set.has(today) };
   }
-
   function buildReviewSession() {
     const today = dayKey();
     const inStash = stashedIds();
@@ -98,16 +117,13 @@
       .sort((a, b) => a.r.due.localeCompare(b.r.due) || a.r.box - b.r.box)
       .map((x) => x.id);
     let ids = due.slice(0, DAILY_REVIEW_SIZE), fromLibrary = false;
-    if (ids.length === 0 && inStash.size === 0) {
-      ids = shuffle(allIdeas()).slice(0, DAILY_REVIEW_SIZE).map((i) => i.id); fromLibrary = true;
-    }
+    if (ids.length === 0 && inStash.size === 0) { ids = shuffle(allIdeas()).slice(0, DAILY_REVIEW_SIZE).map((i) => i.id); fromLibrary = true; }
     return { ids, i: 0, revealed: false, results: [], fromLibrary };
   }
   const dueCount = () => {
     const today = dayKey();
     return [...stashedIds()].filter((id) => ideaById(id) && (data.reviews[id]?.due || today) <= today).length;
   };
-
   function gradeReview(id, remembered) {
     const r = data.reviews[id] || { box: 0 };
     const box = remembered ? Math.min(r.box + 1, REVIEW_INTERVALS.length - 1) : 0;
@@ -125,18 +141,40 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), action ? 4000 : 2200);
   }
   function openSheet(html, bind) {
+    const sheet = $("#sheet");
     $("#sheetBody").innerHTML = html;
-    $("#sheet").hidden = false; $("#sheetBackdrop").hidden = false;
-    document.body.style.overflow = "hidden";
+    sheet.style.transform = ""; sheet.hidden = false; $("#sheetBackdrop").hidden = false;
+    sheet.scrollTop = 0;
+    document.documentElement.classList.add("sheet-open");
     bind && bind($("#sheetBody"));
   }
   function closeSheet() {
-    $("#sheet").hidden = true; $("#sheetBackdrop").hidden = true; document.body.style.overflow = "";
+    const sheet = $("#sheet"); if (sheet.hidden) return;
+    sheet.hidden = true; $("#sheetBackdrop").hidden = true; sheet.style.transform = "";
+    document.documentElement.classList.remove("sheet-open");
   }
   $("#sheetBackdrop").onclick = closeSheet;
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+  // Drag the sheet down by its handle (or from the top when scrolled up) to dismiss.
+  (() => {
+    const sheet = $("#sheet"); let y0 = null, dy = 0;
+    sheet.addEventListener("pointerdown", (e) => {
+      if (!e.target.closest(".sheet-grab") && (sheet.scrollTop > 0 || e.target.closest("input,textarea,select,button,label,a"))) return;
+      if (!e.target.closest(".sheet-grab") && e.pointerType === "mouse") return;
+      y0 = e.clientY; dy = 0;
+    });
+    window.addEventListener("pointermove", (e) => {
+      if (y0 === null) return; dy = Math.max(0, e.clientY - y0);
+      if (dy > 4) { sheet.style.transition = "none"; sheet.style.transform = `translateY(${dy}px)`; }
+    });
+    const end = () => {
+      if (y0 === null) return; y0 = null; sheet.style.transition = "";
+      if (dy > 110) closeSheet(); else sheet.style.transform = "";
+    };
+    window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end);
+  })();
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if ($("#storyView")) closeStory(); else closeSheet(); } });
 
-  // ---------------------------------------------------------------- chrome
+  // ---------------------------------------------------------------- chrome & navigation
   function refreshChrome() {
     const s = streakInfo();
     $("#streakCount").textContent = s.count;
@@ -145,157 +183,321 @@
     const due = dueCount(); const b = $("#reviewBadge");
     b.hidden = !due || s.doneToday; b.textContent = Math.min(due, 99);
   }
-  document.querySelectorAll(".tab").forEach((btn) => btn.onclick = () => go(btn.dataset.tab));
+  document.querySelectorAll(".tab").forEach((btn) => btn.onclick = () => {
+    if (btn.dataset.tab === ui.tab) { window.scrollTo({ top: 0, behavior: reduceMotion() ? "auto" : "smooth" }); if (ui.tab === "stashes" && ui.openStash) { ui.openStash = null; render(); } return; }
+    go(btn.dataset.tab);
+  });
   $("#streakPill").onclick = () => go("review");
   $("#settingsBtn").onclick = openSettings;
   $("#addBtn").onclick = () => openEditor();
 
   function go(tab) {
-    ui.tab = tab; ui.openStash = tab === "stashes" ? ui.openStash : null;
-    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-    render(); window.scrollTo(0, 0);
+    const run = () => {
+      ui.tab = tab; if (tab !== "stashes") ui.openStash = null;
+      document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+      render(); window.scrollTo(0, 0);
+    };
+    if (document.startViewTransition && !reduceMotion()) document.startViewTransition(run); else run();
   }
   function render() {
+    document.documentElement.classList.toggle("snap", ui.tab === "feed");
     ({ feed: renderFeed, review: renderReview, stashes: renderStashes, search: renderSearch })[ui.tab]();
     refreshChrome();
   }
+  // Re-draw after a data change without losing the feed's scroll position.
+  function softRefresh() {
+    if (ui.tab !== "feed") return render();
+    document.querySelectorAll("#feed .fcard").forEach((el) => {
+      const idea = ideaById(el.dataset.id);
+      if (!idea) return el.remove();
+      const fresh = htmlToEl(feedCardHTML(idea, el.dataset.idx));
+      el.replaceWith(fresh); bindFeedCard(fresh); feedObserver.observe(fresh);
+    });
+    const row = $(".stories"); if (row) { row.outerHTML = storiesRowHTML(); bindStoriesRow(); }
+    refreshChrome();
+  }
+  const htmlToEl = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+
+  // ---------------------------------------------------------------- STORIES
+  function buildStories() {
+    const today = dayKey(), lib = allIdeas();
+    const list = [{ id: "daily", name: "Daily 5", topic: "daily", ids: shuffle(lib, Art.rng("daily" + today)).slice(0, 5).map((i) => i.id) }];
+    const mine = lib.filter((i) => !i.starter).slice(0, 10);
+    if (mine.length) list.push({ id: "mine", name: "Your ideas", topic: "mine", ids: mine.map((i) => i.id) });
+    for (const t of topics()) {
+      const ids = shuffle(lib.filter((i) => i.topic === t), Art.rng(t + today)).slice(0, 8).map((i) => i.id);
+      if (ids.length) list.push({ id: "t:" + t, name: t, topic: t, ids });
+    }
+    const seen = (s) => local.storySeen[s.id] === today;
+    return [...list.filter((s) => !seen(s)), ...list.filter(seen)];
+  }
+  function storiesRowHTML() {
+    const today = dayKey();
+    return `<div class="stories" role="list">${buildStories().map((s, i) => `
+      <button class="story-bubble ${local.storySeen[s.id] === today ? "seen" : ""}" data-si="${i}" role="listitem" aria-label="${esc(s.name)} story">
+        <span class="ring"><span class="av">${Art.avatar(s.topic)}</span></span><span class="sl">${esc(s.name)}</span>
+      </button>`).join("")}</div>`;
+  }
+  function bindStoriesRow() {
+    document.querySelectorAll(".story-bubble").forEach((b) => b.onclick = () => openStory(+b.dataset.si));
+  }
+
+  const story = { list: null, si: 0, ii: 0, t0: 0, elapsed: 0, dur: 0, paused: false, raf: 0, el: null };
+  function openStory(si) {
+    story.list = buildStories(); story.si = si; story.ii = 0;
+    const el = document.createElement("div"); el.id = "storyView"; el.className = "story"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", "Story");
+    document.body.appendChild(el); story.el = el;
+    document.documentElement.classList.add("story-open");
+    bindStoryGestures(el);
+    showStoryFrame();
+  }
+  function closeStory() {
+    cancelAnimationFrame(story.raf);
+    if (story.el) { story.el.classList.add("leaving"); const el = story.el; setTimeout(() => el.remove(), 180); }
+    story.el = null;
+    document.documentElement.classList.remove("story-open");
+    if (ui.tab === "feed") softRefresh();
+  }
+  function showStoryFrame() {
+    const s = story.list[story.si];
+    const idea = ideaById(s.ids[story.ii]);
+    if (!idea) return nextFrame();
+    local.storySeen[s.id] = dayKey(); saveLocal();
+    const el = story.el;
+    el.setAttribute("style", topicStyle(idea.topic));
+    el.innerHTML = `
+      <div class="story-frame">
+        <div class="story-bars">${s.ids.map((_, k) => `<i><b style="width:${k < story.ii ? 100 : 0}%"></b></i>`).join("")}</div>
+        <header class="story-head">
+          <span class="sav">${Art.avatar(s.topic)}</span>
+          <span class="story-name"><b>${esc(s.name)}</b><small>${story.ii + 1} of ${s.ids.length}</small></span>
+          <button class="story-x" aria-label="Close">${ICONS.close}</button>
+        </header>
+        <div class="story-art">${artHTML(idea)}</div>
+        <div class="story-text">
+          <span class="story-topic">${esc(idea.topic || "Idea")} · ${readTime(idea)}</span>
+          <h2>${esc(idea.title)}</h2>
+          <p>${esc(idea.body)}</p>
+          ${idea.source ? `<small class="story-src">${esc(idea.source)}</small>` : ""}
+        </div>
+        <footer class="story-foot">
+          <button class="story-save ${isStashed(idea.id) ? "on" : ""}">${isStashed(idea.id) ? ICONS.bookmark : ICONS.bookmarkO}<span>${isStashed(idea.id) ? "Stashed" : "Stash"}</span></button>
+          <button class="story-share" aria-label="Share">${ICONS.share}</button>
+        </footer>
+        <div class="story-pause" aria-hidden="true">Paused</div>
+      </div>`;
+    el.querySelector(".story-x").onclick = closeStory;
+    el.querySelector(".story-save").onclick = () => {
+      if (isStashed(idea.id)) { pauseStory(); openStashPicker(idea.id, { onClose: () => { refreshStorySave(idea.id); resumeStory(); } }); return; }
+      quickStash(idea.id, { announce: false }); toast(`Stashed in ${data.stashes[defaultStash()].name}`); refreshStorySave(idea.id);
+    };
+    el.querySelector(".story-share").onclick = () => shareIdea(idea);
+    story.bar = el.querySelectorAll(".story-bars b")[story.ii];
+    story.dur = Math.min(16000, Math.max(6000, 2500 + (words(idea.title) + words(idea.body)) * 230));
+    story.elapsed = 0; story.t0 = performance.now(); story.paused = false;
+    cancelAnimationFrame(story.raf); tickStory();
+  }
+  function refreshStorySave(id) {
+    const b = story.el?.querySelector(".story-save"); if (!b) return;
+    const on = isStashed(id); b.classList.toggle("on", on); b.innerHTML = `${on ? ICONS.bookmark : ICONS.bookmarkO}<span>${on ? "Stashed" : "Stash"}</span>`;
+  }
+  function tickStory() {
+    if (!story.el) return;
+    if (!story.paused) {
+      const t = story.elapsed + (performance.now() - story.t0);
+      story.bar.style.width = Math.min(100, (t / story.dur) * 100) + "%";
+      if (t >= story.dur) return nextFrame();
+    }
+    story.raf = requestAnimationFrame(tickStory);
+  }
+  function pauseStory() { if (!story.paused) { story.elapsed += performance.now() - story.t0; story.paused = true; story.el?.classList.add("paused"); } }
+  function resumeStory() { if (story.paused && story.el && $("#sheet").hidden) { story.t0 = performance.now(); story.paused = false; story.el.classList.remove("paused"); } }
+  function nextFrame() {
+    const s = story.list[story.si];
+    if (story.ii < s.ids.length - 1) story.ii++;
+    else if (story.si < story.list.length - 1) { story.si++; story.ii = 0; }
+    else return closeStory();
+    showStoryFrame();
+  }
+  function prevFrame() {
+    if (story.ii > 0) story.ii--;
+    else if (story.si > 0) { story.si--; story.ii = 0; }
+    showStoryFrame();
+  }
+  function bindStoryGestures(el) {
+    let x0, y0, holdTimer, held = false, active = false;
+    el.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return;
+      active = true; held = false; x0 = e.clientX; y0 = e.clientY;
+      holdTimer = setTimeout(() => { held = true; pauseStory(); }, 200);
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!active) return; const dy = e.clientY - y0;
+      if (dy > 10) { clearTimeout(holdTimer); el.querySelector(".story-frame").style.transform = `translateY(${dy}px) scale(${1 - Math.min(dy, 300) / 2000})`; }
+    });
+    el.addEventListener("pointerup", (e) => {
+      if (!active) return; active = false; clearTimeout(holdTimer);
+      const dy = e.clientY - y0, dx = e.clientX - x0, frame = el.querySelector(".story-frame");
+      if (dy > 90) return closeStory();
+      frame.style.transform = "";
+      if (held) { resumeStory(); return; }
+      if (Math.abs(dx) > 50) return dx < 0 ? nextFrame() : prevFrame();
+      if (e.clientX < window.innerWidth * 0.3) prevFrame(); else nextFrame();
+    });
+    el.addEventListener("pointercancel", () => { active = false; clearTimeout(holdTimer); resumeStory(); });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (!story.el || !$("#sheet").hidden) return;
+    if (e.key === "ArrowRight") nextFrame();
+    if (e.key === "ArrowLeft") prevFrame();
+    if (e.key === " ") { e.preventDefault(); story.paused ? resumeStory() : pauseStory(); }
+  });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) pauseStory(); else resumeStory(); });
 
   // ---------------------------------------------------------------- FEED
   function buildFeedQueue() {
     const topic = local.topic;
     const pool = allIdeas().filter((i) => topic === "All" || i.topic === topic);
     const unseen = pool.filter((i) => !local.seen[i.id]);
-    const mine = unseen.filter((i) => !i.starter); // your newest ideas first, then shuffled library
+    const mine = unseen.filter((i) => !i.starter); // your newest ideas first, then the shuffled library
     ui.feedQueue = [...mine, ...shuffle(unseen.filter((i) => i.starter))].map((i) => i.id);
-    ui.feedPoolSize = pool.length;
+    ui.feedShown = 0;
   }
-  function cardHTML(idea, extra = "") {
-    const st = stashesFor(idea.id);
-    return `<article class="idea-card ${extra}" style="--tc:${topicVar(idea.topic)}" data-id="${esc(idea.id)}">
-      <span class="stamp save">Stash</span><span class="stamp skip">Skip</span>
-      <span class="topic">${esc(idea.topic || "Idea")}</span>
-      <h2>${esc(idea.title)}</h2>
-      <p>${esc(idea.body)}</p>
-      <div class="source"><span>${idea.source ? esc(idea.source) : ""}</span><span>${st.length ? "★ " + esc(st.map((s) => s.name).join(", ")) : ""}</span></div>
+  function feedCardHTML(idea, idx) {
+    const on = isStashed(idea.id);
+    return `<article class="fcard" data-id="${esc(idea.id)}" data-idx="${idx}" style="${topicStyle(idea.topic)}">
+      <div class="fcard-art">${artHTML(idea)}<span class="topic-pill">${esc(idea.topic || "Idea")}</span></div>
+      <div class="fcard-content">
+        <div class="fcard-meta">${readTime(idea)}${idea.starter ? "" : " · Yours"}</div>
+        <h2>${esc(idea.title)}</h2>
+        <p>${esc(idea.body)}</p>
+      </div>
+      ${idea.source ? `<div class="fcard-source">${esc(idea.source)}</div>` : ""}
+      <div class="fcard-actions">
+        <button class="act save ${on ? "on" : ""}" data-act="save">${on ? ICONS.bookmark : ICONS.bookmarkO}<span>${on ? "Stashed" : "Stash"}</span></button>
+        <button class="act icon" data-act="share" aria-label="Share">${ICONS.share}</button>
+        <button class="act icon" data-act="more" aria-label="More">${ICONS.more}</button>
+      </div>
+      <div class="burst" aria-hidden="true">${ICONS.bookmark}</div>
     </article>`;
+  }
+  function endCardHTML() {
+    return `<div class="fcard end-card"><div class="empty">
+      <div class="end-art">${Art.svg({ id: "end", topic: "daily" }, { center: true })}</div>
+      <h3>You're all caught up</h3><p>You've seen every idea${local.topic !== "All" ? " in " + esc(local.topic) : ""}. Add one of your own, or start the feed over.</p>
+      <div class="row" style="max-width:360px;margin:18px auto 0"><button class="btn" id="restartBtn">Start over</button><button class="btn primary" id="addHere">Add an idea</button></div></div></div>`;
   }
   function renderFeed() {
     if (!ui.feedQueue) buildFeedQueue();
     ui.feedQueue = ui.feedQueue.filter((id) => ideaById(id));
+    ui.feedShown = 0;
     const chips = ["All", ...topics()].map((t) => `<button class="chip ${local.topic === t ? "active" : ""}" data-topic="${esc(t)}">${esc(t)}</button>`).join("");
-    const [a, b] = ui.feedQueue.map(ideaById);
     $("#view").innerHTML = `
-      <div class="chips" role="tablist">${chips}</div>
-      ${a ? `
-        <div class="deck" id="deck">${b ? cardHTML(b, "behind") : ""}${cardHTML(a)}</div>
-        <div class="deck-actions">
-          <button class="round-btn" id="skipBtn" aria-label="Skip"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
-          <button class="round-btn save" id="saveBtn" aria-label="Stash it"><svg viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z" fill="currentColor"/></svg></button>
-          <button class="round-btn small" id="moreBtn" aria-label="Choose stash or open"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg></button>
-        </div>
-        <p class="hint">Swipe right to stash · left to skip · tap a card to open it</p>`
-      : `<div class="empty"><h3>You're all caught up</h3><p>You've been through every idea${local.topic !== "All" ? " in " + esc(local.topic) : ""}. Add your own, or go through them again.</p>
-          <div class="row" style="max-width:360px;margin:18px auto 0"><button class="btn" id="restartBtn">Start over</button><button class="btn primary" id="addHere">Add an idea</button></div></div>`}`;
-
+      <section class="feed-head">${storiesRowHTML()}<div class="chips">${chips}</div></section>
+      <div class="feed" id="feed"></div>`;
+    bindStoriesRow();
     $("#view").querySelectorAll(".chip").forEach((c) => c.onclick = () => { local.topic = c.dataset.topic; saveLocal(); buildFeedQueue(); renderFeed(); });
-    if (!a) {
+    appendFeedCards(6);
+  }
+  function appendFeedCards(n) {
+    const feed = $("#feed"); if (!feed || feed.querySelector(".end-card")) return;
+    const slice = ui.feedQueue.slice(ui.feedShown, ui.feedShown + n);
+    slice.forEach((id, k) => {
+      const el = htmlToEl(feedCardHTML(ideaById(id), ui.feedShown + k));
+      feed.appendChild(el); bindFeedCard(el); feedObserver.observe(el);
+    });
+    ui.feedShown += slice.length;
+    if (ui.feedShown >= ui.feedQueue.length) {
+      feed.appendChild(htmlToEl(endCardHTML()));
       $("#restartBtn").onclick = () => {
-        const pool = allIdeas().filter((i) => local.topic === "All" || i.topic === local.topic);
-        pool.forEach((i) => delete local.seen[i.id]); saveLocal(); buildFeedQueue(); renderFeed();
+        allIdeas().filter((i) => local.topic === "All" || i.topic === local.topic).forEach((i) => delete local.seen[i.id]);
+        saveLocal(); buildFeedQueue(); renderFeed(); window.scrollTo(0, 0);
       };
       $("#addHere").onclick = () => openEditor();
-      return;
     }
-    $("#skipBtn").onclick = () => flick(-1);
-    $("#saveBtn").onclick = () => flick(1);
-    $("#moreBtn").onclick = () => openIdea(a.id);
-    attachSwipe($("#deck .idea-card:not(.behind)"), a.id);
   }
+  const feedObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const id = e.target.dataset.id;
+      if (id && !local.seen[id]) { local.seen[id] = now(); saveLocal(); }
+      if (+e.target.dataset.idx >= ui.feedShown - 3) appendFeedCards(6);
+    }
+  }, { threshold: 0.55 });
 
-  function advanceFeed(id) {
-    local.seen[id] = now(); saveLocal();
-    ui.feedQueue = ui.feedQueue.filter((x) => x !== id);
-  }
-  function stashFromFeed(id) {
-    const target = data.stashes[local.lastStash] && !data.stashes[local.lastStash].deleted ? local.lastStash : "st-saved";
-    setInStash(target, id, true); save();
-    toast(`Stashed in ${data.stashes[target].name}`, { label: "Change", fn: () => openStashPicker(id) });
-  }
-  function flick(dir) {
-    const card = $("#deck .idea-card:not(.behind)"); if (!card) return;
+  function bindFeedCard(card) {
     const id = card.dataset.id;
-    card.style.transform = `translateX(${dir * 140}%) rotate(${dir * 18}deg)`; card.style.opacity = "0";
-    const behind = $("#deck .idea-card.behind"); if (behind) behind.classList.remove("behind");
-    if (dir > 0) stashFromFeed(id);
-    advanceFeed(id);
-    setTimeout(renderFeed, 260);
+    let tapTimer = null;
+    card.addEventListener("click", (e) => {
+      const act = e.target.closest("[data-act]");
+      if (act) {
+        const a = act.dataset.act, idea = ideaById(id);
+        if (a === "save") { if (!quickStash(id)) openStashPicker(id); else refreshCardSave(card); }
+        if (a === "share") shareIdea(idea);
+        if (a === "more") openIdea(id);
+        return;
+      }
+      if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; doubleTap(card); return; }
+      tapTimer = setTimeout(() => { tapTimer = null; openIdea(id); }, 260);
+    });
   }
-  function attachSwipe(card, id) {
-    let sx = 0, sy = 0, dx = 0, dragging = false, moved = false;
-    const stampSave = card.querySelector(".stamp.save"), stampSkip = card.querySelector(".stamp.skip");
-    card.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      sx = e.clientX; sy = e.clientY; dx = 0; dragging = true; moved = false;
-      card.setPointerCapture(e.pointerId); card.classList.add("dragging");
-    });
-    card.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      dx = e.clientX - sx; const dy = e.clientY - sy;
-      if (!moved && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) { dragging = false; card.classList.remove("dragging"); return; }
-      if (Math.abs(dx) > 6) moved = true;
-      card.style.transform = `translateX(${dx}px) rotate(${dx / 18}deg)`;
-      stampSave.style.opacity = Math.max(0, Math.min(1, dx / 90));
-      stampSkip.style.opacity = Math.max(0, Math.min(1, -dx / 90));
-    });
-    const end = () => {
-      if (!dragging) return; dragging = false; card.classList.remove("dragging");
-      if (Math.abs(dx) > 100) return flick(dx > 0 ? 1 : -1);
-      card.style.transform = ""; stampSave.style.opacity = 0; stampSkip.style.opacity = 0;
-      if (!moved) openIdea(id);
-    };
-    card.addEventListener("pointerup", end);
-    card.addEventListener("pointercancel", () => { dragging = false; card.classList.remove("dragging"); card.style.transform = ""; });
+  function doubleTap(card) {
+    const burst = card.querySelector(".burst");
+    burst.classList.remove("go"); void burst.offsetWidth; burst.classList.add("go");
+    quickStash(card.dataset.id); refreshCardSave(card);
+  }
+  function refreshCardSave(card) {
+    const on = isStashed(card.dataset.id), b = card.querySelector(".act.save");
+    b.classList.toggle("on", on); b.innerHTML = `${on ? ICONS.bookmark : ICONS.bookmarkO}<span>${on ? "Stashed" : "Stash"}</span>`;
   }
   document.addEventListener("keydown", (e) => {
-    if (ui.tab !== "feed" || !$("#sheet").hidden || /input|textarea/i.test(document.activeElement?.tagName)) return;
-    if (e.key === "ArrowRight") flick(1);
-    if (e.key === "ArrowLeft") flick(-1);
+    if (ui.tab !== "feed" || story.el || !$("#sheet").hidden || /input|textarea|select/i.test(document.activeElement?.tagName)) return;
+    const cards = [...document.querySelectorAll("#feed .fcard")];
+    const top = (el) => el.getBoundingClientRect().top;
+    const cur = cards.findIndex((c) => top(c) > 40) - (e.key === "ArrowUp" || e.key === "k" ? 1 : 0);
+    if (e.key === "ArrowDown" || e.key === "j") { e.preventDefault(); cards[Math.max(0, cur)]?.scrollIntoView({ behavior: "smooth" }); }
+    if (e.key === "ArrowUp" || e.key === "k") { e.preventDefault(); (cards[cur - 1] ? cards[cur - 1] : $(".feed-head"))?.scrollIntoView({ behavior: "smooth" }); }
   });
+
+  async function shareIdea(idea) {
+    const text = `${idea.title}\n\n${idea.body}${idea.source ? "\n\n— " + idea.source : ""}`;
+    try {
+      if (navigator.share) { pauseStory(); await navigator.share({ title: idea.title, text }); }
+      else { await navigator.clipboard.writeText(text); toast("Copied to clipboard"); }
+    } catch {} finally { resumeStory(); }
+  }
 
   // ---------------------------------------------------------------- idea detail
   function openIdea(id) {
     const idea = ideaById(id); if (!idea) return;
     const st = stashesFor(id);
     openSheet(`
-      <span class="topic" style="color:${topicVar(idea.topic)};font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase">${esc(idea.topic || "Idea")}</span>
+      <div class="detail-art" style="${topicStyle(idea.topic)}">${artHTML(idea)}<span class="topic-pill">${esc(idea.topic || "Idea")}</span></div>
       <h2 class="detail-title">${esc(idea.title)}</h2>
       <p class="detail-body">${esc(idea.body)}</p>
-      ${idea.source ? `<p class="help" style="margin:0 0 16px">${esc(idea.source)}</p>` : ""}
-      <p class="help" style="margin:0 0 16px">${st.length ? "In: " + st.map((s) => esc(s.emoji + " " + s.name)).join(", ") : "Not in any stash yet"}</p>
+      ${idea.source ? `<p class="help" style="margin:0 0 6px">Source: ${esc(idea.source)}</p>` : ""}
+      <p class="help" style="margin:0 0 16px">${st.length ? "In " + st.map((s) => esc(s.emoji + " " + s.name)).join(", ") : "Not in any stash yet"}</p>
       <div class="row">
-        <button class="btn primary" id="dStash">${st.length ? "Edit stashes" : "Add to stash"}</button>
-        <button class="btn" id="dShare">Share</button>
+        <button class="btn primary" id="dStash">${ICONS.bookmark}${st.length ? "Edit stashes" : "Add to stash"}</button>
+        <button class="btn" id="dShare">${ICONS.share}Share</button>
       </div>
       ${idea.starter ? "" : `<div class="row" style="margin-top:10px"><button class="btn ghost" id="dEdit">Edit</button><button class="btn ghost danger" id="dDel">Delete</button></div>`}
     `, (el) => {
       el.querySelector("#dStash").onclick = () => openStashPicker(id);
-      el.querySelector("#dShare").onclick = async () => {
-        const text = `${idea.title}\n\n${idea.body}${idea.source ? "\n\n— " + idea.source : ""}`;
-        try { if (navigator.share) await navigator.share({ title: idea.title, text }); else { await navigator.clipboard.writeText(text); toast("Copied to clipboard"); } } catch {}
-      };
+      el.querySelector("#dShare").onclick = () => shareIdea(idea);
       if (!idea.starter) {
         el.querySelector("#dEdit").onclick = () => openEditor(idea);
         el.querySelector("#dDel").onclick = () => {
           if (!confirm("Delete this idea? It will be removed from every stash.")) return;
-          data.ideas[id] = { ...data.ideas[id], deleted: true, updatedAt: now() };
+          data.ideas[id] = { ...data.ideas[id], deleted: true, image: undefined, updatedAt: now() };
           liveStashes().forEach((s) => s.ideaIds.includes(id) && setInStash(s.id, id, false));
-          delete data.reviews[id]; save(); closeSheet(); render(); toast("Idea deleted");
+          delete data.reviews[id]; save(); closeSheet(); softRefresh(); toast("Idea deleted");
         };
       }
     });
   }
 
-  function openStashPicker(id) {
+  function openStashPicker(id, { onClose } = {}) {
     const idea = ideaById(id);
     const rows = () => liveStashes().map((s) => `
       <label class="check-row"><input type="checkbox" data-s="${esc(s.id)}" ${s.ideaIds.includes(id) ? "checked" : ""}>
@@ -307,7 +509,7 @@
       <button class="btn primary block" style="margin-top:14px" id="pickDone">Done</button>
     `, (el) => {
       const bindRows = () => el.querySelectorAll("input[data-s]").forEach((cb) => cb.onchange = () => {
-        setInStash(cb.dataset.s, id, cb.checked); if (cb.checked) { local.lastStash = cb.dataset.s; saveLocal(); } save();
+        setInStash(cb.dataset.s, id, cb.checked); if (cb.checked) { local.lastStash = cb.dataset.s; saveLocal(); buzz(); } save();
       });
       bindRows();
       el.querySelector("#newStashBtn").onclick = () => {
@@ -316,17 +518,36 @@
         setInStash(s.id, id, true); local.lastStash = s.id; saveLocal(); save();
         el.querySelector("#pickRows").innerHTML = rows(); el.querySelector("#newStashName").value = ""; bindRows();
       };
-      el.querySelector("#pickDone").onclick = () => { closeSheet(); render(); };
+      el.querySelector("#pickDone").onclick = () => { closeSheet(); if (onClose) onClose(); else softRefresh(); };
     });
+    if (onClose) {
+      const watch = new MutationObserver(() => { if ($("#sheet").hidden) { watch.disconnect(); onClose(); } });
+      watch.observe($("#sheet"), { attributes: true, attributeFilter: ["hidden"] });
+      const done = $("#pickDone"); done.onclick = () => closeSheet();
+    }
   }
 
   // ---------------------------------------------------------------- editor
+  async function resizeImage(file, max = 720) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      return c.toDataURL("image/jpeg", 0.72);
+    } finally { URL.revokeObjectURL(url); }
+  }
   function openEditor(existing) {
     const isEdit = !!existing;
+    const draft = { id: existing?.id || uid("i"), topic: existing?.topic || "", image: existing?.image };
     const tlist = topics().map((t) => `<option value="${esc(t)}">`).join("");
     const stashOpts = liveStashes().map((s) => `<option value="${esc(s.id)}">${esc(s.emoji + " " + s.name)}</option>`).join("");
     openSheet(`
       <h3>${isEdit ? "Edit idea" : "New idea"}</h3>
+      <div class="cover-pick" id="coverPrev"></div>
+      <div class="row" style="margin:-4px 0 14px"><button class="btn" id="coverBtn">Add a photo</button><button class="btn ghost" id="coverDel">Use artwork</button></div>
+      <input type="file" id="coverFile" accept="image/*" hidden>
       <label class="field"><span>Idea in one line</span><input class="input" id="eTitle" maxlength="140" placeholder="e.g. Constraints spark creativity" value="${esc(existing?.title)}"></label>
       <label class="field"><span>Explain it in your own words</span><textarea class="input" id="eBody" maxlength="1200" placeholder="A few sentences you'd want to remember">${esc(existing?.body)}</textarea></label>
       <label class="field"><span>Source (book, article, podcast…)</span><input class="input" id="eSource" maxlength="140" placeholder="Optional" value="${esc(existing?.source)}"></label>
@@ -334,22 +555,31 @@
       ${isEdit ? "" : `<label class="field"><span>Save to stash</span><select class="input" id="eStash"><option value="">Don't stash yet</option>${stashOpts}</select></label>`}
       <button class="btn primary block" id="eSave">${isEdit ? "Save changes" : "Add idea"}</button>
     `, (el) => {
-      if (!isEdit) el.querySelector("#eStash").value = local.lastStash && data.stashes[local.lastStash] && !data.stashes[local.lastStash].deleted ? local.lastStash : "";
-      setTimeout(() => el.querySelector("#eTitle").focus(), 250);
+      const prev = () => { el.querySelector("#coverPrev").innerHTML = artHTML(draft); el.querySelector("#coverDel").hidden = !validImage(draft.image); };
+      prev();
+      el.querySelector("#eTopic").oninput = (e) => { draft.topic = e.target.value; prev(); };
+      el.querySelector("#coverBtn").onclick = () => el.querySelector("#coverFile").click();
+      el.querySelector("#coverDel").onclick = () => { draft.image = undefined; prev(); };
+      el.querySelector("#coverFile").onchange = async (e) => {
+        const f = e.target.files[0]; if (!f) return;
+        try { draft.image = await resizeImage(f); prev(); } catch { toast("Couldn't read that photo"); }
+      };
+      if (!isEdit) el.querySelector("#eStash").value = defaultStash();
       el.querySelector("#eSave").onclick = () => {
         const title = el.querySelector("#eTitle").value.trim();
         const body = el.querySelector("#eBody").value.trim();
         if (!title || !body) { toast("Add a title and a short explanation"); return; }
-        const fields = { title, body, source: el.querySelector("#eSource").value.trim(), topic: el.querySelector("#eTopic").value.trim() || "Other" };
+        const fields = { title, body, source: el.querySelector("#eSource").value.trim(), topic: el.querySelector("#eTopic").value.trim() || "Other", image: validImage(draft.image) ? draft.image : undefined };
         if (isEdit) {
           data.ideas[existing.id] = { ...data.ideas[existing.id], ...fields, updatedAt: now() };
-          save(); closeSheet(); render(); toast("Idea updated");
+          save(); closeSheet(); softRefresh(); toast("Idea updated");
         } else {
-          const id = uid("i");
+          const id = draft.id;
           data.ideas[id] = { id, ...fields, createdAt: now(), updatedAt: now() };
           const st = el.querySelector("#eStash").value;
           if (st) { setInStash(st, id, true); local.lastStash = st; saveLocal(); }
-          save(); closeSheet(); ui.feedQueue = null; render();
+          save(); closeSheet(); ui.feedQueue = null;
+          if (ui.tab === "feed") { render(); window.scrollTo(0, 0); } else go("feed");
           toast(st ? `Added to ${data.stashes[st].name}` : "Idea added to your feed");
         }
       };
@@ -403,13 +633,15 @@
       <h1 class="view-title">Daily review</h1>
       <p class="view-sub">${r.i + 1} of ${r.ids.length}${r.fromLibrary ? " · warm-up from the library" : ""}</p>
       <div class="progress"><div style="width:${(r.i / r.ids.length) * 100}%"></div></div>
-      <article class="idea-card review-card" style="--tc:${topicVar(idea.topic)}">
-        <span class="topic">${esc(idea.topic || "Idea")}</span>
-        <h2>${esc(idea.title)}</h2>
-        ${r.revealed ? `<p>${esc(idea.body)}</p><div class="source"><span>${esc(idea.source || "")}</span></div>`
-          : `<button class="reveal-cover" id="reveal">What's the idea? Think of it, then tap to check.</button>`}
+      <article class="rcard" style="${topicStyle(idea.topic)}">
+        <div class="rcard-art">${artHTML(idea)}<span class="topic-pill">${esc(idea.topic || "Idea")}</span></div>
+        <div class="rcard-content">
+          <h2>${esc(idea.title)}</h2>
+          ${r.revealed ? `<p>${esc(idea.body)}</p>${idea.source ? `<small>${esc(idea.source)}</small>` : ""}`
+            : `<button class="reveal-cover" id="reveal">What's the idea? Think of it, then tap to check.</button>`}
+        </div>
       </article>
-      <div class="row" style="margin-top:18px">
+      <div class="row" style="margin-top:16px">
         ${r.revealed ? `<button class="btn" id="again">Review again</button><button class="btn primary" id="gotIt">I remembered</button>`
           : `<button class="btn primary block" id="reveal2">Show the idea</button>`}
       </div>`;
@@ -418,7 +650,7 @@
     const grade = (ok) => {
       if (!r.fromLibrary) gradeReview(idea.id, ok);
       r.results.push(ok); r.i++; r.revealed = false;
-      if (r.i >= r.ids.length && !data.days.includes(dayKey())) data.days.push(dayKey());
+      if (r.i >= r.ids.length && !data.days.includes(dayKey())) { data.days.push(dayKey()); buzz(); }
       save(); renderReview();
     };
     $("#again").onclick = () => grade(false);
@@ -434,13 +666,18 @@
   function renderStashes() {
     if (ui.openStash && data.stashes[ui.openStash] && !data.stashes[ui.openStash].deleted) return renderStash(data.stashes[ui.openStash]);
     ui.openStash = null;
-    const tiles = liveStashes().map((s) => `
-      <button class="stash-tile" data-s="${esc(s.id)}"><span class="emoji">${esc(s.emoji)}</span>
-      <span><div class="name">${esc(s.name)}</div><div class="count">${s.ideaIds.length} idea${s.ideaIds.length === 1 ? "" : "s"}</div></span></button>`).join("");
+    const tiles = liveStashes().map((s) => {
+      const items = s.ideaIds.map(ideaById).filter(Boolean).slice(0, 3);
+      const cover = items.length
+        ? `<div class="tile-cover n${items.length}">${items.map((i) => `<span>${artHTML(i, { center: true })}</span>`).join("")}</div>`
+        : `<div class="tile-cover empty-cover"><span class="emoji">${esc(s.emoji)}</span></div>`;
+      return `<button class="stash-tile" data-s="${esc(s.id)}">${cover}
+        <span class="tile-text"><span class="name">${esc(s.emoji)} ${esc(s.name)}</span><span class="count">${s.ideaIds.length} idea${s.ideaIds.length === 1 ? "" : "s"}</span></span></button>`;
+    }).join("");
     $("#view").innerHTML = `
       <h1 class="view-title">Your stashes</h1>
       <p class="view-sub">Collections of ideas worth keeping.</p>
-      <div class="stash-grid">${tiles}<button class="stash-tile new" id="newStash">+ New stash</button></div>`;
+      <div class="stash-grid">${tiles}<button class="stash-tile new" id="newStash"><span class="plus">+</span>New stash</button></div>`;
     $("#view").querySelectorAll("[data-s]").forEach((b) => b.onclick = () => { ui.openStash = b.dataset.s; renderStashes(); window.scrollTo(0, 0); });
     $("#newStash").onclick = () => openStashEditor();
   }
@@ -473,23 +710,24 @@
   function renderStash(s) {
     const items = s.ideaIds.map(ideaById).filter(Boolean);
     $("#view").innerHTML = `
-      <button class="btn ghost" id="back" style="padding:8px 0;border:0">← All stashes</button>
+      <button class="back-btn" id="back">‹ Stashes</button>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <h1 class="view-title">${esc(s.emoji)} ${esc(s.name)}</h1>
         <button class="btn" id="editStash">Edit</button>
       </div>
       <p class="view-sub">${items.length} idea${items.length === 1 ? "" : "s"}</p>
-      ${items.length ? `<div class="list">${items.map(listItem).join("")}</div>`
-        : `<div class="empty"><h3>Empty for now</h3><p>Swipe right on ideas in your feed, or tap ⋯ on a card to choose this stash.</p></div>`}`;
+      ${items.length ? `<div class="list">${items.map((i) => listItem(i)).join("")}</div>`
+        : `<div class="empty"><h3>Empty for now</h3><p>Double-tap ideas in your feed, or tap Stash on a card and choose this stash.</p></div>`}`;
     $("#back").onclick = () => { ui.openStash = null; renderStashes(); };
     $("#editStash").onclick = () => openStashEditor(s);
     bindListItems();
   }
   function listItem(i, q) {
-    const hl = (t) => { const e = esc(t); if (!q) return e; const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"); return e.replace(re, "<mark>$1</mark>"); };
-    return `<button class="list-item" data-id="${esc(i.id)}" style="--tc:${topicVar(i.topic)}">
-      <div class="li-topic">${esc(i.topic || "Idea")}${i.starter ? "" : " · yours"}</div>
-      <div class="li-title">${hl(i.title)}</div><div class="li-body">${hl(i.body)}</div></button>`;
+    const hl = (t) => { const e = esc(t); if (!q) return e; const re = new RegExp(`(${esc(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"); return e.replace(re, "<mark>$1</mark>"); };
+    return `<button class="list-item" data-id="${esc(i.id)}" style="${topicStyle(i.topic)}">
+      <span class="thumb">${artHTML(i, { center: true })}</span>
+      <span class="li-text"><span class="li-topic">${esc(i.topic || "Idea")}${i.starter ? "" : " · yours"}</span>
+      <span class="li-title">${hl(i.title)}</span><span class="li-body">${hl(i.body)}</span></span></button>`;
   }
   const bindListItems = () => $("#view").querySelectorAll(".list-item").forEach((b) => b.onclick = () => openIdea(b.dataset.id));
 
@@ -521,6 +759,7 @@
   const b64encode = (str) => { const bytes = new TextEncoder().encode(str); let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
   const b64decode = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, "")), (c) => c.charCodeAt(0)));
   const syncReady = () => syncCfg.token && syncCfg.owner && syncCfg.repo && syncCfg.path;
+  const repoPath = () => `/repos/${encodeURIComponent(syncCfg.owner)}/${encodeURIComponent(syncCfg.repo)}`;
 
   async function gh(path, opts = {}) {
     const res = await fetch("https://api.github.com" + path, {
@@ -532,7 +771,7 @@
     if (!res.ok) { const err = new Error(body?.message || `GitHub error ${res.status}`); err.status = res.status; throw err; }
     return body;
   }
-  const contentsPath = () => `/repos/${encodeURIComponent(syncCfg.owner)}/${encodeURIComponent(syncCfg.repo)}/contents/${syncCfg.path.split("/").map(encodeURIComponent).join("/")}`;
+  const contentsPath = () => `${repoPath()}/contents/${syncCfg.path.split("/").map(encodeURIComponent).join("/")}`;
 
   function mergeById(a = {}, b = {}) {
     const out = { ...a };
@@ -566,7 +805,10 @@
         let remote = null, sha;
         try {
           const file = await gh(`${contentsPath()}?ref=${encodeURIComponent(syncCfg.branch)}`);
-          sha = file.sha; remote = JSON.parse(b64decode(file.content));
+          sha = file.sha;
+          // Files over 1 MB (lots of photos) come back without content; fetch the raw blob instead.
+          const b64 = file.content && file.encoding === "base64" ? file.content : (await gh(`${repoPath()}/git/blobs/${file.sha}`)).content;
+          remote = JSON.parse(b64decode(b64));
         } catch (e) { if (e.status !== 404) throw e; }
         const merged = merge(data, remote);
         const localChanged = canonical(merged) !== canonical(data);
@@ -575,13 +817,13 @@
           try {
             await gh(contentsPath(), { method: "PUT", body: JSON.stringify({
               message: `Deeper Stash sync · ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
-              content: b64encode(JSON.stringify(merged, null, 1)), branch: syncCfg.branch, ...(sha ? { sha } : {})
+              content: b64encode(JSON.stringify(merged)), branch: syncCfg.branch, ...(sha ? { sha } : {})
             }) });
           } catch (e) { if (e.status === 409 || e.status === 422) continue; throw e; }
         }
         syncCfg.lastSync = now(); persist(SYNC_KEY, syncCfg);
         setDot("ok", "Synced " + new Date().toLocaleTimeString());
-        if (localChanged) { ui.feedQueue = null; if ($("#sheet").hidden) render(); else refreshChrome(); }
+        if (localChanged && $("#sheet").hidden && !story.el) { ui.feedQueue = ui.tab === "feed" ? ui.feedQueue : null; softRefresh(); } else refreshChrome();
         if (!quiet) toast("Synced with GitHub");
         return true;
       }
@@ -678,8 +920,31 @@
     });
   }
 
+  // ---------------------------------------------------------------- install banner
+  function setupInstall() {
+    const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+    document.documentElement.classList.toggle("standalone", !!standalone);
+    if (standalone || local.installDismissed) return;
+    const banner = $("#installBanner");
+    const show = (html, action) => {
+      banner.innerHTML = `<img src="icon-192.png" alt=""><span>${html}</span>${action ? `<button class="btn primary small" id="installGo">${action.label}</button>` : ""}<button class="icon-btn" id="installX" aria-label="Dismiss">${ICONS.close}</button>`;
+      banner.hidden = false;
+      $("#installX").onclick = () => { banner.hidden = true; local.installDismissed = true; saveLocal(); };
+      if (action) $("#installGo").onclick = action.fn;
+    };
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (ios) setTimeout(() => show(`<b>Get the app:</b> tap ${ICONS.iosShare} Share, then <b>Add to Home Screen</b>`), 1500);
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      show("<b>Install Deeper Stash</b> for full-screen, offline use", { label: "Install", fn: async () => { e.prompt(); await e.userChoice.catch(() => {}); banner.hidden = true; } });
+    });
+    window.addEventListener("appinstalled", () => { banner.hidden = true; });
+  }
+
   // ---------------------------------------------------------------- boot
   render();
+  setupInstall();
+  requestAnimationFrame(() => setTimeout(() => { const sp = $("#splash"); if (sp) { sp.classList.add("gone"); setTimeout(() => sp.remove(), 500); } }, 450));
   if (syncReady()) { setDot("", "Sync ready"); if (syncCfg.auto) syncNow(); } else setDot("", "Sync is off — set it up in Settings");
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 })();

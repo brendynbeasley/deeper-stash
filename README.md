@@ -6,7 +6,9 @@ Bite-sized ideas from books, articles, podcasts and life — swipe through them,
 
 ## Features
 
-- **Swipeable feed** — swipe right (or tap the bookmark) to stash an idea, left to skip. Tap a card to open it. Arrow keys work on desktop.
+- **Full-screen feed** — scroll through full-height idea cards, each with its own illustration. Double-tap a card (or tap **Stash**) to save it; tap to open it.
+- **Stories** — a row of story circles (Daily 5, Your ideas, and each topic) that open full-screen and auto-advance. Tap right/left to move, hold to pause, swipe down to close.
+- **Photos** — give your own ideas a cover photo, or keep the generated artwork.
 - **Starter library** — 43 original idea cards across Productivity, Psychology, Learning, Money, Health, Communication, Creativity, Thinking and Habits.
 - **Your own ideas** — tap **+** to add an idea with a title, explanation, source and topic.
 - **Stashes** — named collections with an icon. An idea can live in several stashes.
@@ -36,6 +38,7 @@ Changes sync automatically a few seconds after you make them, and again whenever
 | `index.html` | App shell |
 | `styles.css` | Styles (light and dark mode) |
 | `app.js` | All app logic: feed, stashes, review, search, GitHub sync |
+| `art.js` | Generates each card's illustration and the story avatars |
 | `starter.js` | The starter idea library — add your own cards here |
 | `sw.js`, `manifest.webmanifest` | Offline support and home-screen install |
 
